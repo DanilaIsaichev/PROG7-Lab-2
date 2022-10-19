@@ -1,6 +1,4 @@
-import concurrent.futures as ftres
 import multiprocessing as mp
-import timeit
 from decimal import *
 from math import pi, sin
 
@@ -34,77 +32,71 @@ def integrate_async(f, a: float, b: float, *, n_iter: int=1000, cpu_u=mp.cpu_cou
   if b <= a:
     raise ValueError
 
+  # Переводим границы в Decimal
   a_dec = Decimal(a)
   b_dec = Decimal(b)
 
   # Вычисление шага
   h = (b_dec - a_dec) / n_iter
 
-  # Вычисление суммы значений функции от крайних значений промежутка
-  s = f(a_dec) + f(b_dec)
+  # Вычисление суммы значений функции от крайних значений промежутка с пееводом в Decimal
+  s = Decimal(f(a_dec)) + Decimal(f(b_dec))
 
   # Определяем наиболее оптимальное число потоков
   if cpu_u <= 2: 
-    with ftres.ThreadPoolExecutor(max_workers=2) as executer:
-      # Поток для первого цикла
-      s1 = executer.submit(integrate_sum_dec, f, a_dec, b_dec - h, 2 * h)
+    with mp.Pool(2) as p:
+      # starmap - метод, позволяющий передавать функции наборы аргументов
+      result = p.starmap(integrate_sum_dec, [
+        (f, a_dec, b_dec - h, 2 * h),
+        (f, a_dec + 2 * h, b_dec - 2 * h, 2 * h)
+      ])
 
-      # Поток для второго цикла
-      s2 = executer.submit(integrate_sum_dec, f, a_dec + 2 * h, b_dec - 2 * h, 2 * h)
-
-    g = 4 * s1.result() + 2 * s2.result()
+    g = 4 * result[0] + 2 * result[1]
 
   elif cpu_u > 2 and cpu_u <= 4: 
-    with ftres.ThreadPoolExecutor(max_workers=4) as executer:
-      # Потоки для первого цикла
-      s11 = executer.submit(integrate_sum_dec, f, a_dec, b_dec/2, 2 * h)
+    with mp.Pool(4) as p:
+      # starmap - метод, позволяющий передавать функции наборы аргументов
+      result = p.starmap(integrate_sum_dec, [
+        (f, a_dec, b_dec/2, 2 * h),
+        (f, b_dec/2 + 2 * h, b_dec - h, 2 * h),
+        (f, a_dec + 2 * h, b_dec/2 - 2 * h, 2 * h),
+        (f, b_dec/2, b_dec - 2 * h, 2 * h)
+      ])
 
-      s12 = executer.submit(integrate_sum_dec, f, b_dec/2 + 2 * h, b_dec - h, 2 * h)
-
-      # Потоки для второго цикла
-      s21 = executer.submit(integrate_sum_dec, f, a_dec + 2 * h, b_dec/2 - 2 * h, 2 * h)
-
-      s22 = executer.submit(integrate_sum_dec, f, b_dec/2, b_dec - 2 * h, 2 * h)
-
-    g = 4 * (s11.result() + s12.result()) + 2 * (s21.result() + s22.result())
+    g = 4 * (result[0] + result[1]) + 2 * (result[2] + result[3])
   
   else:
     #TODO: проверить правильность вычислений
-    with ftres.ThreadPoolExecutor(max_workers=6) as executer:
-      # Потоки для первого цикла
-      s11 = executer.submit(integrate_sum_dec, f, a_dec, b_dec/3, 2 * h)
+    with mp.Pool(6) as p:
+      # starmap - метод, позволяющий передавать функции наборы аргументов
+      result = p.starmap(integrate_sum_dec, [
+        (f, a_dec, b_dec/3, 2 * h),
+        (f, b_dec/3 + 2 * h, 2 * b_dec/3, 2 * h),
+        (f, 2 * b_dec/3 + 2 * h, b_dec - h, 2 * h),
+        (f, a_dec + 2 * h, b_dec/3, 2 * h),
+        (f, b_dec/3 + 2 * h, 2 * b_dec/3, 2 * h),
+        (f, 2 * b_dec/3 + 2 * h, b_dec - 2 * h, 2 * h)
+      ])
 
-      s12 = executer.submit(integrate_sum_dec, f, b_dec/3 + 2 * h, 2 * b_dec/3, 2 * h)
+    g = 4 * (result[0] + result[1] + result[2]) + 2 * (result[3] + result[4] + result[5])
 
-      s13 = executer.submit(integrate_sum_dec, f, 2 * b_dec/3 + 2 * h, b_dec - h, 2 * h)
-
-      # Потоки для второго цикла
-      s21 = executer.submit(integrate_sum_dec, f, a_dec + 2 * h, b_dec/3, 2 * h)
-
-      s22 = executer.submit(integrate_sum_dec, f, b_dec/3 + 2 * h, 2 * b_dec/3, 2 * h)
-
-      s23 = executer.submit(integrate_sum_dec, f, 2 * b_dec/3 + 2 * h, b_dec - 2 * h, 2 * h)
-
-    g = 4 * (s11.result() + s12.result() + s13.result()) + 2 * (s21.result() + s22.result() + s23.result())
-
-
-  return Decimal(h/(Decimal(3))) * Decimal(g + s)#format((h/3) * (g + s)), ".8f")
+  return Decimal(h/(Decimal(3))) * Decimal(g + s)
 
 
 def integrate_sum(f, a: float, b: float, h: float) -> float:
-    s = 0
-    while a <= b:
-        s += f(a)
-        a += h
-    return s
+  s = 0
+  while a <= b:
+    s += f(a)
+    a += h
+  return s
 
 
 def integrate_sum_dec(f, a: Decimal, b: Decimal, h: Decimal) -> Decimal:
-    s = Decimal(0)
-    while a <= b:
-        s += f(a)
-        a += h
-    return s
+  s = Decimal(0)
+  while a <= b:
+    s += Decimal(f(a))
+    a += h
+  return s
 
 
 def my_function(x: float) -> float:
